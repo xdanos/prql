@@ -8,8 +8,7 @@ mod lexer;
 mod stmt;
 
 use anyhow::Result;
-use chumsky::{error::SimpleReason, prelude::*, Stream};
-use itertools::Itertools;
+use chumsky::{error::Cheap, Stream};
 
 use self::lexer::Token;
 
@@ -21,7 +20,7 @@ use crate::error::{Error, Errors, Reason};
 pub fn parse(string: &str) -> Result<Vec<Stmt>> {
     let mut errors = Vec::new();
 
-    let (tokens, lex_errors) = ::chumsky::Parser::parse_recovery(&lexer::lexer(), string);
+    let (tokens, lex_errors) = chumsky::Parser::parse_recovery(&lexer::lexer(), string);
 
     errors.extend(lex_errors.into_iter().map(convert_char_error));
 
@@ -29,8 +28,7 @@ pub fn parse(string: &str) -> Result<Vec<Stmt>> {
         let len = string.chars().count();
         let stream = Stream::from_iter(len..len + 1, tokens.into_iter());
 
-        let (ast, parse_errors) =
-            ::chumsky::Parser::parse_recovery(&stmt::source(), stream);
+        let (ast, parse_errors) = chumsky::Parser::parse_recovery(&stmt::source(), stream);
 
         errors.extend(parse_errors.into_iter().map(convert_token_error));
 
@@ -46,53 +44,24 @@ pub fn parse(string: &str) -> Result<Vec<Stmt>> {
     }
 }
 
-fn convert_char_error(e: Simple<char>) -> Error {
-    let expected = e
-        .expected()
-        .filter_map(|t| t.as_ref().map(|c| format!("{c:?}")))
-        .collect_vec();
+fn convert_char_error(e: Cheap<char>) -> Error {
+    let expected = vec![];
 
-    let found = match e.found() {
-        Some(x) => x.to_string(),
-        None => "end of input".to_string(),
-    };
+    let found = "?".to_string();
 
     convert_error(e, found, expected)
 }
 
-fn convert_token_error(e: Simple<Token>) -> Error {
-    let just_whitespace = e
-        .expected()
-        .all(|t| matches!(t, None | Some(Token::NewLine)));
-    let expected = e
-        .expected()
-        .filter(|t| {
-            if just_whitespace {
-                true
-            } else {
-                !matches!(t, None | Some(Token::NewLine))
-            }
-        })
-        .map(|t| match t {
-            Some(t) => t.to_string(),
-            None => "end of input".to_string(),
-        })
-        .collect_vec();
-
-    let found = e.found().map(|c| c.to_string()).unwrap_or_default();
-    convert_error(e, found, expected)
+fn convert_token_error(e: Cheap<Token>) -> Error {
+    convert_error(e, "?".to_string(), vec![])
 }
 
 fn convert_error<T: std::hash::Hash + PartialEq + Eq>(
-    e: Simple<T>,
+    e: Cheap<T>,
     found: String,
     mut expected: Vec<String>,
 ) -> Error {
     let span = common::into_span(e.span());
-
-    if let SimpleReason::Custom(message) = e.reason() {
-        return Error::new_simple(message).with_span(span);
-    }
 
     if expected.is_empty() || expected.len() > 10 {
         Error::new(Reason::Unexpected { found })
@@ -116,30 +85,24 @@ fn convert_error<T: std::hash::Hash + PartialEq + Eq>(
 }
 
 mod common {
-    use chumsky::prelude::*;
+    use chumsky::{error::Cheap, prelude::*};
 
     use super::lexer::Token;
     use crate::{ast::pl::*, Span};
 
-    pub fn ident_part() -> impl Parser<Token, String, Error = Simple<Token>> {
-        select! { Token::Ident(ident) => ident }.map_err(|e: Simple<Token>| {
-            Simple::expected_input_found(
-                e.span(),
-                [Some(Token::Ident("".to_string()))],
-                e.found().cloned(),
-            )
-        })
+    pub fn ident_part() -> impl Parser<Token, String, Error = Cheap<Token>> {
+        select! { Token::Ident(ident) => ident }
     }
 
-    pub fn keyword(kw: &'static str) -> impl Parser<Token, (), Error = Simple<Token>> + Clone {
+    pub fn keyword(kw: &'static str) -> impl Parser<Token, (), Error = Cheap<Token>> + Clone {
         just(Token::Keyword(kw.to_string())).ignored()
     }
 
-    pub fn new_line() -> impl Parser<Token, (), Error = Simple<Token>> + Clone {
+    pub fn new_line() -> impl Parser<Token, (), Error = Cheap<Token>> + Clone {
         just(Token::NewLine).ignored()
     }
 
-    pub fn ctrl(chars: &'static str) -> impl Parser<Token, (), Error = Simple<Token>> + Clone {
+    pub fn ctrl(chars: &'static str) -> impl Parser<Token, (), Error = Cheap<Token>> + Clone {
         just(Token::ctrl(chars)).ignored()
     }
 
@@ -169,17 +132,15 @@ mod common {
 mod test {
 
     use super::*;
-    use anyhow::anyhow;
+    use chumsky::prelude::*;
     use insta::assert_yaml_snapshot;
 
     fn parse_expr(string: &str) -> Result<Expr, Vec<anyhow::Error>> {
-        let tokens = Parser::parse(&lexer::lexer(), string)
-            .map_err(|errs| errs.into_iter().map(|e| anyhow!(e)).collect_vec())?;
+        let tokens = Parser::parse(&lexer::lexer(), string).unwrap();
 
         let len = string.chars().count();
         let stream = Stream::from_iter(len..len + 1, tokens.into_iter());
-        Parser::parse(&expr::expr_call().then_ignore(end()), stream)
-            .map_err(|errs| errs.into_iter().map(|e| anyhow!(e)).collect_vec())
+        Ok(Parser::parse(&expr::expr_call().then_ignore(end()), stream).unwrap())
     }
 
     #[test]

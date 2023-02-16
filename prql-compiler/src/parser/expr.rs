@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use chumsky::error::Cheap;
 use chumsky::prelude::*;
 
 use crate::ast::pl::*;
@@ -8,11 +9,11 @@ use super::common::*;
 use super::interpolation;
 use super::lexer::Token;
 
-pub fn expr_call() -> impl Parser<Token, Expr, Error = Simple<Token>> {
+pub fn expr_call() -> impl Parser<Token, Expr, Error = Cheap<Token>> {
     func_call(expr())
 }
 
-pub fn expr() -> impl Parser<Token, Expr, Error = Simple<Token>> + Clone {
+pub fn expr() -> impl Parser<Token, Expr, Error = Cheap<Token>> + Clone {
     recursive(|expr| {
         let literal = select! { Token::Literal(lit) => ExprKind::Literal(lit) };
 
@@ -161,9 +162,9 @@ pub fn expr() -> impl Parser<Token, Expr, Error = Simple<Token>> + Clone {
     })
 }
 
-pub fn pipeline<E>(expr: E) -> impl Parser<Token, ExprKind, Error = Simple<Token>>
+pub fn pipeline<E>(expr: E) -> impl Parser<Token, ExprKind, Error = Cheap<Token>>
 where
-    E: Parser<Token, Expr, Error = Simple<Token>>,
+    E: Parser<Token, Expr, Error = Cheap<Token>>,
 {
     // expr has to be a param, because it can be either a normal expr() or
     // a recursive expr called from within expr()
@@ -188,10 +189,10 @@ where
 fn binary_op_parser<'a, Term, Op>(
     term: Term,
     op: Op,
-) -> impl Parser<Token, Expr, Error = Simple<Token>> + 'a
+) -> impl Parser<Token, Expr, Error = Cheap<Token>> + 'a
 where
-    Term: Parser<Token, Expr, Error = Simple<Token>> + 'a,
-    Op: Parser<Token, BinOp, Error = Simple<Token>> + 'a,
+    Term: Parser<Token, Expr, Error = Cheap<Token>> + 'a,
+    Op: Parser<Token, BinOp, Error = Cheap<Token>> + 'a,
 {
     let term = term.map_with_span(|e, s| (e, s)).boxed();
 
@@ -210,9 +211,9 @@ where
         .boxed()
 }
 
-fn func_call<E>(expr: E) -> impl Parser<Token, Expr, Error = Simple<Token>>
+fn func_call<E>(expr: E) -> impl Parser<Token, Expr, Error = Cheap<Token>>
 where
-    E: Parser<Token, Expr, Error = Simple<Token>> + Clone,
+    E: Parser<Token, Expr, Error = Cheap<Token>> + Clone,
 {
     let func = expr.clone();
 
@@ -234,7 +235,7 @@ where
     let args = named_arg.or(positional_arg).repeated();
 
     func.then(args)
-        .validate(|(name, args), span, emit| {
+        .validate(|(name, args), _, _| {
             if args.is_empty() {
                 return name.kind;
             }
@@ -244,8 +245,7 @@ where
             for (name, arg) in args {
                 if let Some(name) = name {
                     if named_args.contains_key(&name) {
-                        let err = Simple::custom(span.clone(), "argument is used multiple times");
-                        emit(err)
+                        panic!();
                     }
                     named_args.insert(name, arg);
                 } else {
@@ -263,7 +263,7 @@ where
         .labelled("function call")
 }
 
-pub fn ident() -> impl Parser<Token, Ident, Error = Simple<Token>> {
+pub fn ident() -> impl Parser<Token, Ident, Error = Cheap<Token>> {
     let star = ctrl("*").to("*".to_string());
 
     ident_part()
@@ -272,21 +272,21 @@ pub fn ident() -> impl Parser<Token, Ident, Error = Simple<Token>> {
         .labelled("identifier")
 }
 
-fn operator_unary() -> impl Parser<Token, UnOp, Error = Simple<Token>> {
+fn operator_unary() -> impl Parser<Token, UnOp, Error = Cheap<Token>> {
     (ctrl("+").to(UnOp::Add))
         .or(ctrl("-").to(UnOp::Neg))
         .or(ctrl("!").to(UnOp::Not))
         .or(ctrl("==").to(UnOp::EqSelf))
 }
-fn operator_mul() -> impl Parser<Token, BinOp, Error = Simple<Token>> {
+fn operator_mul() -> impl Parser<Token, BinOp, Error = Cheap<Token>> {
     (ctrl("*").to(BinOp::Mul))
         .or(ctrl("/").to(BinOp::Div))
         .or(ctrl("%").to(BinOp::Mod))
 }
-fn operator_add() -> impl Parser<Token, BinOp, Error = Simple<Token>> {
+fn operator_add() -> impl Parser<Token, BinOp, Error = Cheap<Token>> {
     (ctrl("+").to(BinOp::Add)).or(ctrl("-").to(BinOp::Sub))
 }
-fn operator_compare() -> impl Parser<Token, BinOp, Error = Simple<Token>> {
+fn operator_compare() -> impl Parser<Token, BinOp, Error = Cheap<Token>> {
     (ctrl("==").to(BinOp::Eq))
         .or(ctrl("!=").to(BinOp::Ne))
         .or(ctrl("<=").to(BinOp::Lte))
@@ -294,12 +294,12 @@ fn operator_compare() -> impl Parser<Token, BinOp, Error = Simple<Token>> {
         .or(ctrl("<").to(BinOp::Lt))
         .or(ctrl(">").to(BinOp::Gt))
 }
-fn operator_and() -> impl Parser<Token, BinOp, Error = Simple<Token>> {
+fn operator_and() -> impl Parser<Token, BinOp, Error = Cheap<Token>> {
     ctrl("and").to(BinOp::And)
 }
-fn operator_or() -> impl Parser<Token, BinOp, Error = Simple<Token>> {
+fn operator_or() -> impl Parser<Token, BinOp, Error = Cheap<Token>> {
     ctrl("or").to(BinOp::Or)
 }
-fn operator_coalesce() -> impl Parser<Token, BinOp, Error = Simple<Token>> {
+fn operator_coalesce() -> impl Parser<Token, BinOp, Error = Cheap<Token>> {
     ctrl("??").to(BinOp::Coalesce)
 }

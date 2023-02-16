@@ -1,5 +1,6 @@
 use std::{collections::HashMap, str::FromStr};
 
+use chumsky::error::Cheap;
 use chumsky::prelude::*;
 use semver::VersionReq;
 
@@ -9,7 +10,7 @@ use super::common::*;
 use super::expr::*;
 use super::lexer::Token;
 
-pub fn source() -> impl Parser<Token, Vec<Stmt>, Error = Simple<Token>> {
+pub fn source() -> impl Parser<Token, Vec<Stmt>, Error = Cheap<Token>> {
     query_def()
         .or_not()
         .chain::<Stmt, _, _>(
@@ -24,7 +25,7 @@ pub fn source() -> impl Parser<Token, Vec<Stmt>, Error = Simple<Token>> {
         .labelled("source file")
 }
 
-fn main_pipeline() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
+fn main_pipeline() -> impl Parser<Token, Stmt, Error = Cheap<Token>> {
     pipeline(expr_call())
         .map_with_span(into_expr)
         .map(Box::new)
@@ -33,7 +34,7 @@ fn main_pipeline() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
         .labelled("main pipeline")
 }
 
-fn query_def() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
+fn query_def() -> impl Parser<Token, Stmt, Error = Cheap<Token>> {
     new_line()
         .repeated()
         .ignore_then(keyword("prql"))
@@ -42,7 +43,7 @@ fn query_def() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
             ident_part().then_ignore(ctrl(":")).then(expr()).repeated(),
         )
         .then_ignore(new_line())
-        .try_map(|args, span| {
+        .try_map(|args, _| {
             let mut args: HashMap<_, _> = args.into_iter().collect();
 
             let version = args
@@ -54,7 +55,7 @@ fn query_def() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
                     _ => Err("version must be a sting literal".to_string()),
                 })
                 .transpose()
-                .map_err(|msg| Simple::custom(span, msg))?;
+                .map_err(|_| todo!())?;
 
             let other = args
                 .into_iter()
@@ -70,7 +71,7 @@ fn query_def() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
         .labelled("query header")
 }
 
-fn var_def() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
+fn var_def() -> impl Parser<Token, Stmt, Error = Cheap<Token>> {
     keyword("let")
         .ignore_then(ident_part())
         .then_ignore(ctrl("="))
@@ -81,7 +82,7 @@ fn var_def() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
         .labelled("variable definition")
 }
 
-fn function_def() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
+fn function_def() -> impl Parser<Token, Stmt, Error = Cheap<Token>> {
     keyword("func")
         .ignore_then(
             // func name
@@ -120,7 +121,7 @@ fn function_def() -> impl Parser<Token, Stmt, Error = Simple<Token>> {
         .labelled("function definition")
 }
 
-pub fn type_expr() -> impl Parser<Token, Ty, Error = Simple<Token>> {
+pub fn type_expr() -> impl Parser<Token, Ty, Error = Cheap<Token>> {
     recursive(|type_expr| {
         let type_term = ident_part().then(type_expr.or_not()).map(|(name, param)| {
             let ty = match TyLit::from_str(&name) {
